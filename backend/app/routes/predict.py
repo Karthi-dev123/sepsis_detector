@@ -32,9 +32,8 @@ async def predict(file: UploadFile = File(...)):
     # This MUST be the exact same function used during training.
     # Member 1 owns this file — we just import and call it.
     try:
-        from app.preprocessing import preprocess
-        from app.model_loader import population_medians
-        df_processed = preprocess(df, population_medians)
+        from app.preprocessing import preprocess_patient
+        df_processed = preprocess_patient(df)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preprocessing failed: {e}")
 
