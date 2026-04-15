@@ -1,0 +1,145 @@
+import { useState } from 'react'
+import { FileText, Send, CheckCircle, Loader2, AlertCircle } from 'lucide-react'
+import { generateReport } from '../utils/api'
+
+export default function ReportPreview({ result }) {
+  const [report, setReport]     = useState(null)
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState(null)
+
+  async function handleGenerateReport() {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await generateReport(result)
+      setReport(data)
+    } catch (err) {
+      setError('Failed to generate report. Make sure the backend is running.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-teal-500" />
+          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+            AI Clinical Report
+          </h2>
+        </div>
+        <span className="text-xs bg-teal-50 text-teal-600 border border-teal-200
+                         px-2 py-1 rounded-full font-medium">
+          Powered by MedGemma 1.5
+        </span>
+      </div>
+
+      {/* Pre-generation state */}
+      {!report && !loading && (
+        <div className="border border-dashed border-slate-200 rounded-lg p-6
+                        flex flex-col items-center justify-center text-center gap-3">
+          <div className="bg-slate-50 rounded-full p-3">
+            <FileText className="w-5 h-5 text-slate-400" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-600">
+              Generate Clinical Report
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              MedGemma will analyze the patient data and draft a clinical
+              summary. An alert email will be sent to the demo inbox.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateReport}
+            className="flex items-center gap-2 bg-teal-500 hover:bg-teal-600
+                       text-white text-sm font-semibold px-5 py-2.5 rounded-lg
+                       transition-colors shadow-sm hover:shadow-md"
+          >
+            <Send className="w-4 h-4" />
+            Generate Report & Send Alert
+          </button>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <div className="border border-dashed border-teal-200 bg-teal-50 rounded-lg
+                        p-8 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-6 h-6 text-teal-500 animate-spin" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-teal-700">
+              MedGemma is analyzing patient data...
+            </p>
+            <p className="text-xs text-teal-500 mt-1">
+              Generating clinical summary and sending alert email
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="flex items-start gap-2 p-3 bg-red-50 border
+                        border-red-200 rounded-lg mb-3">
+          <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* Report result */}
+      {report && (
+        <div className="space-y-4">
+          {/* Email sent confirmation */}
+          <div className={`flex items-center gap-3 p-3 rounded-lg border
+            ${report.email_sent
+              ? 'bg-emerald-50 border-emerald-200'
+              : 'bg-slate-50 border-slate-200'
+            }`}>
+            <CheckCircle className={`w-4 h-4 shrink-0
+              ${report.email_sent ? 'text-emerald-500' : 'text-slate-400'}`}
+            />
+            <div>
+              <p className={`text-xs font-semibold
+                ${report.email_sent ? 'text-emerald-700' : 'text-slate-600'}`}>
+                {report.email_sent
+                  ? `Alert email sent → ${report.email_recipient}`
+                  : 'Email dispatch unavailable'
+                }
+              </p>
+              {report.email_sent && (
+                <p className="text-xs text-emerald-500 mt-0.5">
+                  Check the demo inbox to see the full formatted alert
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Clinical Summary */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase
+                          tracking-wide mb-2">
+              AI Clinical Summary
+            </p>
+            <p className="text-sm text-slate-700 leading-relaxed italic">
+              "{report.clinical_summary}"
+            </p>
+            <p className="text-xs text-slate-400 mt-3">
+              Generated by MedGemma 1.5 clinical reasoning agent
+            </p>
+          </div>
+
+          {/* Regenerate button */}
+          <button
+            onClick={handleGenerateReport}
+            className="text-xs text-slate-400 hover:text-teal-500
+                       transition-colors underline underline-offset-2"
+          >
+            Regenerate report
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
