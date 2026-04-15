@@ -1,20 +1,65 @@
-const BASE_URL = "http://localhost:8000";
+import axios from 'axios';
 
-export const checkHealth = async () => {
-  const res = await fetch(`${BASE_URL}/health`);
-  return res.json();
-};
+// Base URL for Group A's backend
+const API_BASE_URL = 'http://localhost:8000';
 
-export const predictSepsis = async (file) => {
-  const formData = new FormData();
-  formData.append("file", file);
+/**
+ * Upload a patient CSV file and get risk predictions
+ * @param {File} file - The CSV/PSV file to analyze
+ * @returns {Promise} - Response data with risk scores, SHAP values, vitals
+ * @throws {Error} - Network or validation errors
+ */
+export async function predictPatient(file) {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
 
-  const res = await fetch(`${BASE_URL}/predict`, {
-    method: "POST",
-    body: formData,
-  });
+    const response = await axios.post(
+      `${API_BASE_URL}/predict`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
 
-  if (!res.ok) throw new Error("Prediction failed");
+    return response.data;
+  } catch (error) {
+    console.error('Error calling /predict:', error);
+    throw new Error(
+      error.response?.data?.detail ||
+        error.message ||
+        'Failed to analyze patient file'
+    );
+  }
+}
 
-  return res.json();
-};
+/**
+ * Generate a clinical report and send alert email
+ * @param {Object} predictionData - The prediction result from /predict endpoint
+ * @returns {Promise} - Response data with clinical_summary and email_sent status
+ * @throws {Error} - Network or API errors
+ */
+export async function generateReport(predictionData) {
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/generate-report`,
+      predictionData,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Error calling /generate-report:', error);
+    throw new Error(
+      error.response?.data?.detail ||
+        error.message ||
+        'Failed to generate clinical report'
+    );
+  }
+}
