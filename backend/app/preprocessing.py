@@ -28,9 +28,8 @@ def preprocess_patient(df: pd.DataFrame) -> pd.DataFrame:
     # Within a patient, carry last known value forward
     # (e.g. if WBC was measured at hour 3, use that for hours 4,5,6...)
     if 'patient_id' in df.columns:
-        df = df.groupby('patient_id', group_keys=False).apply(
-            lambda x: x.ffill().bfill()
-        )
+       df = df.groupby('patient_id', group_keys=False).apply(
+           lambda x: x.ffill().bfill(), include_groups=False)
     else:
         # Single patient file — no groupby needed
         df = df.ffill().bfill()

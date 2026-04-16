@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.model_loader import load_model
 from app.routes import predict, report
+# Add at top with other imports:
+from app.routes.ward import router as ward_router
+
 
 # The lifespan context manager is FastAPI's modern way of handling
 # startup and shutdown events. Code before `yield` runs at startup,
@@ -34,6 +37,8 @@ app.add_middleware(
 # Register the route files — each file handles a specific group of endpoints.
 app.include_router(predict.router)
 app.include_router(report.router)
+# Add after your existing app.include_router lines:
+app.include_router(ward_router)
 
 # Simple health check — Group B's frontend calls this on page load
 # to confirm the backend is up and the model is ready before showing the upload form.
