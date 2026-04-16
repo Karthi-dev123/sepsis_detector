@@ -169,3 +169,127 @@ async def ward_stream(websocket: WebSocket):
     except Exception as e:
         print(f'Ward stream error: {e}')
         await websocket.close()
+    
+
+# ── Patient Summary Endpoint ───────────────────────────────────
+import httpx
+
+MEDGEMMA_URL = os.environ.get("MEDGEMMA_URL", "http://localhost:11434/api/generate")
+MEDGEMMA_MODEL = os.environ.get("MEDGEMMA_MODEL", "medgemma")
+
+def _build_trend(vitals_list: list, key: str) -> str:
+    """Return 'rising', 'falling', or 'stable' for a vital over last N hours."""
+    vals = [v.get(key) for v in vitals_list if v.get(key) is not None]
+    if len(vals) < 2:
+        return "insufficient data"
+    delta = vals[-1] - vals[0]
+    if delta > 5:   return "rising"
+    if delta < -5:  return "falling"
+    return "stable"
+
+def _template_summary(patient: dict, current_hour: int) -> str:
+    """Fallback template when MedGemma is unavailable or slow."""
+    meta    = patient["meta"]
+    scores  = patient["scores"]
+    vitals  = patient["vitals"]
+    score   = scores[current_hour - 1] if current_hour > 0 else scores[-1]
+    latest  = vitals[current_hour - 1] if current_hour > 0 else vitals[-1]
+
+    hr   = latest.get("HR",    "N/A")
+    temp = latest.get("Temp",  "N/A")
+    resp = latest.get("Resp",  "N/A")
+    o2   = latest.get("O2Sat", "N/A")
+    sbp  = latest.get("SBP",   "N/A")
+
+    risk_label = "elevated" if score >= 0.65 else "low" if score < 0.30 else "moderate"
+
+    return (
+        f"Patient {meta['patient_id']} is a {meta['age']}-year-old currently at hour "
+        f"{current_hour} of ICU monitoring. "
+        f"Current sepsis risk score is {score:.2f} ({risk_label}). "
+        f"Latest vitals: HR {hr} bpm, Temp {temp}°C, Resp {resp} breaths/min, "
+        f"O2Sat {o2}%, SBP {sbp} mmHg. "
+        f"Continued monitoring is advised with attention to trend changes."
+    )
+
+@router.get("/ward/patients/{bed_id}/summary")
+async def get_patient_summary(bed_id: int):
+    """
+    Called when doctor clicks a patient card.
+    Returns a MedGemma-generated real-time clinical status summary.
+    Falls back to a template summary if MedGemma is unavailable.
+    """
+    # Find the patient by bed number
+    patient = next((p for p in WARD_DATA if p["meta"]["bed"] == bed_id), None)
+    if patient is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Bed {bed_id} not found")
+
+    scores  = patient["scores"]
+    vitals  = patient["vitals"]
+    meta    = patient["meta"]
+
+    # Use the latest available data point
+    current_hour = len(scores)
+    latest_score = scores[-1]
+    latest_vitals = vitals[-1]
+
+    # Last 6 hours of vitals for trend analysis
+    recent_vitals = vitals[-6:] if len(vitals) >= 6 else vitals
+
+    hr_trend   = _build_trend(recent_vitals, "HR")
+    temp_trend = _build_trend(recent_vitals, "Temp")
+    resp_trend = _build_trend(recent_vitals, "Resp")
+
+    # Build SHAP context if available (fired during RED alert)
+    shap_context = "Insufficient data for feature attribution."
+    try:
+        import shap as shap_lib
+        avail = [f for f in feature_columns if f in pd.DataFrame([latest_vitals]).columns]
+        if avail:
+            explainer = shap_lib.TreeExplainer(model)
+            sv = explainer.shap_values(pd.DataFrame([latest_vitals])[avail])
+            top = pd.Series(sv[0], index=avail).sort_values(key=abs, ascending=False).head(3)
+            shap_context = ", ".join([f"{k} ({v:+.3f})" for k, v in top.items()])
+    except Exception:
+        pass  # SHAP is best-effort
+
+    prompt = f"""You are a clinical decision support AI assisting ICU staff.
+
+Patient: {meta['patient_id']}, Age: {meta['age']}, Room: {meta['room']}
+Current hour of monitoring: {current_hour}
+Sepsis risk score: {latest_score:.3f} (threshold: 0.65)
+
+Latest vitals:
+- Heart Rate: {latest_vitals.get('HR', 'N/A')} bpm (trend: {hr_trend})
+- Temperature: {latest_vitals.get('Temp', 'N/A')}°C (trend: {temp_trend})
+- Respiratory Rate: {latest_vitals.get('Resp', 'N/A')} breaths/min (trend: {resp_trend})
+- O2 Saturation: {latest_vitals.get('O2Sat', 'N/A')}%
+- Systolic BP: {latest_vitals.get('SBP', 'N/A')} mmHg
+
+Top contributing factors to risk score: {shap_context}
+
+Generate a 3-4 sentence real-time clinical status summary of how this patient is doing right now. Be concise, factual, and clinically relevant. Do not diagnose. Do not recommend medications."""
+
+    # Try MedGemma with a 5-second timeout
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(MEDGEMMA_URL, json={
+                "model":  MEDGEMMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            summary = data.get("response", "").strip()
+            if not summary:
+                raise ValueError("Empty response from MedGemma")
+            return {"bed": bed_id, "summary": summary, "source": "medgemma"}
+
+    except Exception as e:
+        print(f"MedGemma unavailable for bed {bed_id}: {e} — using template fallback")
+        return {
+            "bed":     bed_id,
+            "summary": _template_summary(patient, current_hour),
+            "source":  "template",
+        }
