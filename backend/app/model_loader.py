@@ -7,7 +7,12 @@ import os
 model = None
 feature_columns = None
 population_medians = None
-
+# In model_loader.py — add this guard at the top of load_model()
+def load_model():
+    global model, feature_columns, population_medians
+    if model is not None:   # ← already loaded, skip
+        return
+    # ... rest of function unchanged
 def load_model():
     """
     Called once at FastAPI startup.
